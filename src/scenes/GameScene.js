@@ -90,11 +90,36 @@ export class GameScene extends Phaser.Scene {
 
     this.levelIndex = 0;
     this.levelTransitioning = false;
+    this.isPaused = false;
+    this.pauseText = null;
+
+    // Werewolves (level 2)
+    this.werewolves = [];
+    this.werewolfSpeed = 230;
+    this.werewolfSpawnCount = 6;
+    this.werewolfMaxHealth = 6;
+    this.werewolfBiteDamage = 2;
+    this.werewolfSpriteSpacing = 40;
   }
 
   init(data) {
     this.levelIndex = data?.levelIndex ?? 0;
     this.levelTransitioning = false;
+    this.isGameOver = false;
+    this.isPaused = false;
+    this.isFallen = false;
+    this.isProne = false;
+    this.isProneActive = false;
+    this.isRunning = false;
+    this.playerHealth = this.playerMaxHealth;
+
+    this.zombies = [];
+    this.werewolves = [];
+    this.bullets = [];
+    this.dirtParticles = [];
+    this.pits = [];
+    this.obstacles = [];
+    this.dirtStreams = [];
   }
 
   preload() {
@@ -523,6 +548,59 @@ export class GameScene extends Phaser.Scene {
     graphics.clear();
   }
 
+  createWerewolfSprite(graphics) {
+    // Werewolf sprite - lean, fast predator - 38x50
+    const w = 38;
+    const h = 50;
+
+    const fur = 0x4a3a2a;
+    const furDark = 0x2a1a12;
+    const furLight = 0x6a5a4a;
+    const eye = 0xff3333;
+
+    graphics.clear();
+
+    // Head
+    graphics.fillStyle(furDark, 1);
+    graphics.fillRect(8, 2, 18, 12);
+    graphics.fillStyle(fur, 1);
+    graphics.fillRect(10, 4, 14, 10);
+
+    // Eyes
+    graphics.fillStyle(eye, 1);
+    graphics.fillRect(13, 7, 3, 3);
+    graphics.fillRect(19, 7, 3, 3);
+
+    // Snout
+    graphics.fillStyle(furLight, 1);
+    graphics.fillRect(22, 9, 8, 4);
+
+    // Torso
+    graphics.fillStyle(fur, 1);
+    graphics.fillRect(10, 14, 16, 18);
+    graphics.fillStyle(furLight, 1);
+    graphics.fillRect(12, 16, 4, 8);
+
+    // Arms
+    graphics.fillStyle(furDark, 1);
+    graphics.fillRect(4, 16, 6, 12);
+    graphics.fillRect(26, 16, 6, 12);
+    graphics.fillStyle(furLight, 1);
+    graphics.fillRect(4, 26, 6, 4);
+    graphics.fillRect(26, 26, 6, 4);
+
+    // Legs
+    graphics.fillStyle(fur, 1);
+    graphics.fillRect(10, 32, 8, 12);
+    graphics.fillRect(20, 32, 8, 12);
+    graphics.fillStyle(furDark, 1);
+    graphics.fillRect(10, 42, 8, 6);
+    graphics.fillRect(20, 42, 8, 6);
+
+    graphics.generateTexture('werewolf', w, h);
+    graphics.clear();
+  }
+
   createTextures() {
     const graphics = this.add.graphics();
 
@@ -552,6 +630,9 @@ export class GameScene extends Phaser.Scene {
 
     // Create zombie texture
     this.createZombieSprite(graphics);
+
+    // Create werewolf texture
+    this.createWerewolfSprite(graphics);
 
     // Create punch effect texture
     graphics.fillStyle(0xffff00, 0.8);
@@ -850,11 +931,26 @@ export class GameScene extends Phaser.Scene {
     this.createDirtStreams();
     this.createObstacles();
     this.createZombies();
+    this.createWerewolves();
     this.createPlayer();
     this.createAnimations();
     this.createUI();
     this.setupInput();
     this.setupCamera();
+    this.setupVisibilityPause();
+  }
+
+  setupVisibilityPause() {
+    this.handleVisibilityChange = () => {
+      if (document.hidden && !this.isPaused) {
+        this.togglePause();
+      }
+    };
+
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.events.once('shutdown', () => {
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    });
   }
 
   createAnimations() {
@@ -1119,6 +1215,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   createZombies() {
+    if (this.levelIndex === 1) return;
     // Spawn zombies throughout the level
     const startX = this.screenWidth + 200;  // Start spawning after first screen
     const endX = this.levelWidth - 200;
@@ -1151,6 +1248,37 @@ export class GameScene extends Phaser.Scene {
       zombie.healthBarFill.setDepth(zombie.footY + 2);
 
       this.zombies.push(zombie);
+    }
+  }
+
+  createWerewolves() {
+    if (this.levelIndex !== 1) return;
+
+    const startX = this.screenWidth + 200;
+    const endX = this.levelWidth - 200;
+
+    for (let i = 0; i < this.werewolfSpawnCount; i++) {
+      const x = startX + Math.random() * (endX - startX);
+      const y = this.playAreaTop + 20 + Math.random() * (this.playAreaBottom - this.playAreaTop - 40);
+
+      const werewolf = this.add.sprite(x, y, 'werewolf');
+      werewolf.footY = werewolf.y + werewolf.height / 2;
+      werewolf.setDepth(werewolf.footY);
+      werewolf.facingRight = Math.random() > 0.5;
+      werewolf.setFlipX(!werewolf.facingRight);
+      werewolf.health = this.werewolfMaxHealth;
+      werewolf.state = 'approach';
+      werewolf.biteCooldown = 0;
+      werewolf.jumpCooldown = 1000 + Math.random() * 2000;
+      werewolf.crouchTimer = 0;
+      werewolf.jumpTimer = 0;
+      werewolf.jumpDuration = 350;
+      werewolf.jumpStartX = werewolf.x;
+      werewolf.jumpTargetX = werewolf.x;
+      werewolf.jumpHitApplied = false;
+      werewolf.retreatDistance = 0;
+
+      this.werewolves.push(werewolf);
     }
   }
 
@@ -1461,6 +1589,151 @@ export class GameScene extends Phaser.Scene {
       zombie.healthBarFill.x = zombie.x - 14;
       zombie.healthBarFill.y = zombie.y - zombie.height / 2 - 8;
       zombie.healthBarFill.setDepth(zombie.footY + 2);
+    }
+  }
+
+  startWerewolfRetreat(werewolf, distance) {
+    werewolf.state = 'retreat';
+    werewolf.retreatDistance = distance;
+    werewolf.biteCooldown = 800;
+    werewolf.crouchTimer = 0;
+    werewolf.jumpTimer = 0;
+    werewolf.jumpHitApplied = false;
+    werewolf.clearTint();
+    werewolf.setScale(1, 1);
+  }
+
+  startWerewolfJump(werewolf) {
+    werewolf.state = 'jump';
+    werewolf.jumpTimer = 0;
+    werewolf.jumpHitApplied = false;
+    werewolf.clearTint();
+    werewolf.setScale(1, 1);
+    werewolf.jumpStartX = werewolf.x;
+    werewolf.jumpBaseY = werewolf.y;
+    werewolf.jumpTargetX = werewolf.x < this.player.x
+      ? this.player.x + this.werewolfSpriteSpacing
+      : this.player.x - this.werewolfSpriteSpacing;
+    werewolf.facingRight = werewolf.jumpTargetX > werewolf.x;
+    werewolf.setFlipX(!werewolf.facingRight);
+  }
+
+  werewolfBite(werewolf) {
+    if (this.isGameOver) return;
+
+    werewolf.state = 'bite';
+    werewolf.biteCooldown = 1000;
+
+    this.playerHealth -= this.werewolfBiteDamage;
+    this.updatePlayerHealthBar();
+
+    if (this.playerHealth <= 0) {
+      this.playerDeath();
+    } else {
+      this.showPlayerOuchBalloon();
+    }
+
+    this.startWerewolfRetreat(werewolf, this.werewolfSpriteSpacing * 3);
+  }
+
+  updateWerewolves(delta) {
+    if (this.levelIndex !== 1) return;
+
+    const deltaSeconds = delta / 1000;
+    const heroX = this.player.x;
+    const heroY = this.player.y;
+
+    for (let i = 0; i < this.werewolves.length; i++) {
+      const werewolf = this.werewolves[i];
+
+      if (werewolf.biteCooldown > 0) {
+        werewolf.biteCooldown -= delta;
+      }
+      if (werewolf.jumpCooldown > 0) {
+        werewolf.jumpCooldown -= delta;
+      }
+
+      const dx = heroX - werewolf.x;
+      const dy = heroY - werewolf.y;
+      const distance = Math.sqrt(dx * dx + dy * dy) || 1;
+
+      if (werewolf.state === 'approach') {
+        if (distance <= this.werewolfSpriteSpacing &&
+            werewolf.jumpCooldown <= 0 &&
+            Math.random() < 0.25) {
+          werewolf.state = 'crouch';
+          werewolf.crouchTimer = 1000;
+          werewolf.setScale(1, 0.85);
+        } else if (distance <= 24 && werewolf.biteCooldown <= 0) {
+          this.werewolfBite(werewolf);
+        } else {
+          werewolf.x += (dx / distance) * this.werewolfSpeed * deltaSeconds;
+          werewolf.y += (dy / distance) * this.werewolfSpeed * deltaSeconds;
+        }
+      } else if (werewolf.state === 'retreat') {
+        if (distance >= werewolf.retreatDistance) {
+          werewolf.state = 'approach';
+        } else {
+          werewolf.x -= (dx / distance) * this.werewolfSpeed * deltaSeconds;
+          werewolf.y -= (dy / distance) * this.werewolfSpeed * deltaSeconds;
+        }
+      } else if (werewolf.state === 'crouch') {
+        werewolf.crouchTimer -= delta;
+        if (werewolf.crouchTimer <= 100) {
+          werewolf.setTint(0xff2222);
+        }
+        if (werewolf.crouchTimer <= 0) {
+          werewolf.clearTint();
+          werewolf.setScale(1, 1);
+          werewolf.jumpCooldown = 2000 + Math.random() * 2000;
+          this.startWerewolfJump(werewolf);
+        }
+      } else if (werewolf.state === 'jump') {
+        werewolf.jumpTimer += delta;
+        const progress = Math.min(1, werewolf.jumpTimer / werewolf.jumpDuration);
+        const arcHeight = 30;
+        const arc = Math.sin(progress * Math.PI) * arcHeight;
+        werewolf.x = werewolf.jumpStartX + (werewolf.jumpTargetX - werewolf.jumpStartX) * progress;
+        werewolf.y = werewolf.jumpBaseY - arc;
+
+        if (!werewolf.jumpHitApplied && progress >= 0.5) {
+          werewolf.jumpHitApplied = true;
+          const closeEnough = Math.abs(werewolf.x - heroX) <= this.werewolfSpriteSpacing;
+          if (closeEnough && !this.isProneActive && !this.isProne && !this.isFallen && !this.isGameOver) {
+            const jumpDamage = Math.ceil(this.playerMaxHealth / 3);
+            this.playerHealth -= jumpDamage;
+            this.updatePlayerHealthBar();
+            if (this.playerHealth <= 0) {
+              this.playerDeath();
+            } else {
+              this.playerFall();
+            }
+          }
+        }
+
+        if (progress >= 1) {
+          werewolf.y = werewolf.jumpBaseY;
+          this.startWerewolfRetreat(werewolf, this.werewolfSpriteSpacing * 3);
+        }
+      }
+
+      werewolf.facingRight = heroX > werewolf.x;
+      werewolf.setFlipX(!werewolf.facingRight);
+
+      const werewolfBottom = werewolf.y + werewolf.height / 2;
+      if (werewolfBottom < this.playAreaTop) {
+        werewolf.y = this.playAreaTop - werewolf.height / 2;
+      }
+      if (werewolfBottom > this.playAreaBottom) {
+        werewolf.y = this.playAreaBottom - werewolf.height / 2;
+      }
+
+      const halfWidth = werewolf.width / 2;
+      if (werewolf.x < halfWidth) werewolf.x = halfWidth;
+      if (werewolf.x > this.levelWidth - halfWidth) werewolf.x = this.levelWidth - halfWidth;
+
+      werewolf.footY = werewolf.y + werewolf.height / 2;
+      werewolf.setDepth(werewolf.footY);
     }
   }
 
@@ -1808,6 +2081,45 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  checkBulletWerewolfCollisions() {
+    if (this.levelIndex !== 1) return;
+
+    for (let i = this.bullets.length - 1; i >= 0; i--) {
+      const bullet = this.bullets[i];
+      const bulletLeft = bullet.x - bullet.width / 2;
+      const bulletRight = bullet.x + bullet.width / 2;
+      const bulletY = bullet.y;
+
+      for (let j = this.werewolves.length - 1; j >= 0; j--) {
+        const werewolf = this.werewolves[j];
+        const wwLeft = werewolf.x - werewolf.width / 2;
+        const wwRight = werewolf.x + werewolf.width / 2;
+        const wwTop = werewolf.y - werewolf.height / 2;
+        const wwBottom = werewolf.y + werewolf.height / 2;
+
+        const horizontalOverlap = bulletRight > wwLeft && bulletLeft < wwRight;
+        const verticalOverlap = bulletY > wwTop && bulletY < wwBottom;
+
+        if (horizontalOverlap && verticalOverlap) {
+          werewolf.health -= bullet.damage;
+
+          bullet.destroy();
+          this.bullets.splice(i, 1);
+
+          if (werewolf.health <= 0) {
+            werewolf.destroy();
+            this.werewolves.splice(j, 1);
+          } else if (bullet.texture.key === 'pellet') {
+            this.startWerewolfRetreat(werewolf, this.werewolfSpriteSpacing * 4);
+            werewolf.jumpCooldown = 1500 + Math.random() * 1500;
+          }
+
+          break;
+        }
+      }
+    }
+  }
+
   createPlayer() {
     const startX = 60;
     const startY = (this.playAreaTop + this.playAreaBottom) / 2;
@@ -1883,6 +2195,8 @@ export class GameScene extends Phaser.Scene {
 
     // Ammo display
     this.createAmmoDisplay();
+
+    // Level controls removed (use U/I)
   }
 
   updateWeaponIcons() {
@@ -2157,15 +2471,19 @@ export class GameScene extends Phaser.Scene {
       this.stopProne();
     });
     this.input.keyboard.on('keydown-P', () => {
-      this.changeLevel(1);
+      this.togglePause();
     });
-    this.input.keyboard.on('keydown-O', () => {
+    this.input.keyboard.on('keydown-U', () => {
       this.changeLevel(-1);
+    });
+    this.input.keyboard.on('keydown-I', () => {
+      this.changeLevel(1);
     });
   }
 
   changeLevel(delta) {
     if (this.levelTransitioning) return;
+    if (this.isPaused) return;
 
     const nextLevel = this.levelIndex + delta;
     if (nextLevel < 0 || nextLevel > 1) return;
@@ -2177,8 +2495,38 @@ export class GameScene extends Phaser.Scene {
     this.scene.restart({ levelIndex: nextLevel });
   }
 
+  togglePause() {
+    if (this.levelTransitioning) return;
+    if (this.isGameOver) return;
+
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      this.player.anims.stop();
+      this.stopRunTween();
+      this.pauseText = this.add.text(
+        this.screenWidth / 2,
+        this.screenHeight / 2 - 80,
+        'PAUSED',
+        {
+          fontSize: '48px',
+          fontFamily: 'Georgia, serif',
+          fontStyle: 'bold',
+          fill: '#dddddd',
+          stroke: '#000000',
+          strokeThickness: 6,
+        }
+      );
+      this.pauseText.setOrigin(0.5, 0.5);
+      this.pauseText.setDepth(3500);
+      this.pauseText.setScrollFactor(0);
+    } else if (this.pauseText) {
+      this.pauseText.destroy();
+      this.pauseText = null;
+    }
+  }
+
   shoot() {
-    if (this.isGameOver || !this.canShoot || this.isFallen || (this.isProne && !this.isProneActive)) return;
+    if (this.isGameOver || this.isPaused || !this.canShoot || this.isFallen || (this.isProne && !this.isProneActive)) return;
 
     // Check if we have ammo (fists don't need ammo)
     if (this.currentWeapon === 'gun' && this.gunAmmo <= 0) {
@@ -2489,6 +2837,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.isPaused) {
+      return;
+    }
+
     // Update bullets
     this.updateBullets(delta);
 
@@ -2500,6 +2852,10 @@ export class GameScene extends Phaser.Scene {
 
     // Check bullet-zombie collisions
     this.checkBulletZombieCollisions();
+    this.checkBulletWerewolfCollisions();
+
+    // Update werewolves
+    this.updateWerewolves(delta);
 
     // If fallen or prone, don't allow movement
     if (this.isFallen || this.isProne) {
