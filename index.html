@@ -8,6 +8,7 @@
     * {
       margin: 0;
       padding: 0;
+      box-sizing: border-box;
     }
     body {
       display: flex;
@@ -15,10 +16,66 @@
       align-items: center;
       min-height: 100vh;
       background: #1a1a2e;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    #game-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    #controls {
+      background: #2a2a4e;
+      padding: 12px 24px;
+      border-radius: 8px 8px 0 0;
+      color: #fff;
+      width: 800px;
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .control-group span {
+      color: #aaa;
+      font-size: 14px;
+    }
+    kbd {
+      background: #1a1a2e;
+      border: 1px solid #4a4a6e;
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-family: monospace;
+      color: #fff;
     }
   </style>
 </head>
 <body>
+  <div id="game-container">
+    <div id="controls">
+      <div class="control-group">
+        <span>Move:</span>
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>
+        <span>or</span>
+        <kbd>&larr;</kbd><kbd>&uarr;</kbd><kbd>&darr;</kbd><kbd>&rarr;</kbd>
+      </div>
+      <div class="control-group">
+        <span>Attack:</span>
+        <kbd>Space</kbd>
+      </div>
+      <div class="control-group">
+        <span>Weapons:</span>
+        <kbd>1</kbd><span>Fists</span>
+        <kbd>2</kbd><span>Gun</span>
+        <kbd>3</kbd><span>Shotgun</span>
+      </div>
+    </div>
+    <div id="game"></div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

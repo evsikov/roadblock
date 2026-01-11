@@ -525,6 +525,48 @@ export class GameScene extends Phaser.Scene {
     graphics.generateTexture('punch_effect', 24, 24);
     graphics.clear();
 
+    // Create fist weapon icon (32x32)
+    graphics.fillStyle(0xd4a574, 1);  // Skin color
+    graphics.fillRect(8, 6, 16, 20);  // Fist
+    graphics.fillRect(6, 10, 4, 12);  // Thumb
+    graphics.fillStyle(0xc4956a, 1);
+    graphics.fillRect(8, 12, 2, 8);   // Finger lines
+    graphics.fillRect(12, 12, 2, 8);
+    graphics.fillRect(16, 12, 2, 8);
+    graphics.fillRect(20, 12, 2, 8);
+    graphics.fillStyle(0xe4b584, 1);
+    graphics.fillRect(10, 8, 12, 4);  // Knuckles highlight
+    graphics.generateTexture('icon_fists', 32, 32);
+    graphics.clear();
+
+    // Create pistol weapon icon (32x32)
+    graphics.fillStyle(0x333333, 1);  // Dark metal
+    graphics.fillRect(4, 10, 20, 6);  // Barrel
+    graphics.fillRect(8, 8, 12, 10);  // Body
+    graphics.fillStyle(0x555555, 1);
+    graphics.fillRect(6, 11, 16, 4);  // Barrel highlight
+    graphics.fillStyle(0x8b4513, 1);  // Wood grip
+    graphics.fillRect(12, 16, 6, 10);
+    graphics.fillStyle(0x222222, 1);
+    graphics.fillRect(22, 11, 6, 4);  // Muzzle
+    graphics.generateTexture('icon_gun', 32, 32);
+    graphics.clear();
+
+    // Create shotgun weapon icon (32x32)
+    graphics.fillStyle(0x333333, 1);  // Dark metal
+    graphics.fillRect(2, 12, 24, 4);  // Barrel
+    graphics.fillRect(2, 16, 24, 3);  // Second barrel
+    graphics.fillStyle(0x555555, 1);
+    graphics.fillRect(4, 13, 20, 2);  // Barrel highlight
+    graphics.fillStyle(0x8b4513, 1);  // Wood stock
+    graphics.fillRect(20, 10, 10, 12);
+    graphics.fillStyle(0x6b3503, 1);
+    graphics.fillRect(22, 12, 6, 8);
+    graphics.fillStyle(0x222222, 1);
+    graphics.fillRect(0, 12, 4, 6);   // Muzzle
+    graphics.generateTexture('icon_shotgun', 32, 32);
+    graphics.clear();
+
     // Create bullet texture
     graphics.fillStyle(0xffff00, 1);
     graphics.fillRect(0, 2, 12, 4);
@@ -1234,21 +1276,52 @@ export class GameScene extends Phaser.Scene {
   }
 
   createUI() {
-    // Weapon display - fixed to camera
-    this.weaponText = this.add.text(10, 10, 'Weapon: Fists [1]', {
-      fontSize: '16px',
-      fill: '#fff',
-      backgroundColor: '#000000aa',
-      padding: { x: 8, y: 4 },
-    }).setDepth(2000).setScrollFactor(0);
+    // Weapon icons in top left
+    const iconY = 10;
+    const iconSpacing = 40;
 
-    this.add.text(10, 40, 'Space: Attack | 1: Fists | 2: Gun | 3: Shotgun', {
-      fontSize: '12px',
-      fill: '#aaa',
-    }).setDepth(2000).setScrollFactor(0);
+    // Background for weapon icons
+    this.weaponIconBg = this.add.rectangle(10 + 60, iconY + 16, 130, 38, 0x000000, 0.5);
+    this.weaponIconBg.setOrigin(0.5, 0.5);
+    this.weaponIconBg.setDepth(1999);
+    this.weaponIconBg.setScrollFactor(0);
+
+    // Create weapon icons
+    this.weaponIcons = {
+      fists: this.add.image(10 + 16, iconY + 16, 'icon_fists'),
+      gun: this.add.image(10 + 16 + iconSpacing, iconY + 16, 'icon_gun'),
+      shotgun: this.add.image(10 + 16 + iconSpacing * 2, iconY + 16, 'icon_shotgun')
+    };
+
+    // Set up all icons
+    Object.values(this.weaponIcons).forEach(icon => {
+      icon.setDepth(2000);
+      icon.setScrollFactor(0);
+      icon.setAlpha(0.4);  // Inactive state
+    });
+
+    // Highlight current weapon
+    this.updateWeaponIcons();
 
     // Ammo display
     this.createAmmoDisplay();
+  }
+
+  updateWeaponIcons() {
+    // Reset all icons to inactive
+    Object.values(this.weaponIcons).forEach(icon => {
+      icon.setAlpha(0.4);
+      icon.setScale(1);
+      icon.clearTint();
+    });
+
+    // Highlight active weapon
+    const activeIcon = this.weaponIcons[this.currentWeapon];
+    if (activeIcon) {
+      activeIcon.setAlpha(1);
+      activeIcon.setScale(1.2);
+      activeIcon.setTint(0xffff00);  // Yellow highlight
+    }
   }
 
   createAmmoDisplay() {
@@ -1257,7 +1330,7 @@ export class GameScene extends Phaser.Scene {
     this.ammoIcons = [];
 
     const startX = 10;
-    const startY = 70;
+    const startY = 52;
     const iconSpacing = 14;
 
     if (this.currentWeapon === 'fists') {
@@ -1299,25 +1372,25 @@ export class GameScene extends Phaser.Scene {
     // Weapon selection
     this.input.keyboard.on('keydown-ONE', () => {
       this.currentWeapon = 'fists';
-      this.weaponText.setText('Weapon: Fists [1]');
       this.player.setTexture('player_fists');
       this.player.setFlipX(!this.facingRight);
+      this.updateWeaponIcons();
       this.updateAmmoDisplay();
     });
 
     this.input.keyboard.on('keydown-TWO', () => {
       this.currentWeapon = 'gun';
-      this.weaponText.setText('Weapon: Gun [2]');
       this.player.setTexture('player_gun');
       this.player.setFlipX(!this.facingRight);
+      this.updateWeaponIcons();
       this.updateAmmoDisplay();
     });
 
     this.input.keyboard.on('keydown-THREE', () => {
       this.currentWeapon = 'shotgun';
-      this.weaponText.setText('Weapon: Shotgun [3]');
       this.player.setTexture('player_shotgun');
       this.player.setFlipX(!this.facingRight);
+      this.updateWeaponIcons();
       this.updateAmmoDisplay();
     });
 
