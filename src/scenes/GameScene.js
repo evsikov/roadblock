@@ -20,6 +20,10 @@ export class GameScene extends Phaser.Scene {
     // Depth collision tolerance (how close feet need to be in Y to collide)
     this.depthTolerance = 15;
 
+    // Character collision radius (for player-zombie collision)
+    this.playerCollisionRadius = 18;
+    this.zombieCollisionRadius = 16;
+
     // Weapons
     this.currentWeapon = 'fists';
     this.canShoot = true;
@@ -35,6 +39,13 @@ export class GameScene extends Phaser.Scene {
     this.gunAmmo = 10;
     this.shotgunAmmo = 4;
     this.ammoIcons = [];
+
+    // Player health
+    this.playerMaxHealth = 10;
+    this.playerHealth = 10;
+    this.playerHealthBar = null;
+    this.playerHealthBarFill = null;
+    this.isGameOver = false;
 
     // Player direction (true = facing right/east, false = facing left/west)
     this.facingRight = true;
@@ -1000,6 +1011,11 @@ export class GameScene extends Phaser.Scene {
       zombie.knockbackVelocityX = 0;
       zombie.knockbackVelocityY = 0;
 
+      // Attack properties
+      zombie.isAttacking = false;
+      zombie.attackTimer = 0;
+      zombie.attackDuration = 1500; // 1.5 seconds wind-up
+
       // Create health bar
       zombie.healthBarBg = this.add.rectangle(x, y - zombie.height / 2 - 8, 30, 4, 0x000000);
       zombie.healthBarBg.setDepth(zombie.footY + 1);
@@ -1128,14 +1144,19 @@ export class GameScene extends Phaser.Scene {
     const deltaSeconds = delta / 1000;
     const playerX = this.player.x;
     const playerY = this.player.y;
+    const minDistance = this.playerCollisionRadius + this.zombieCollisionRadius;
 
-    for (const zombie of this.zombies) {
+    for (let i = 0; i < this.zombies.length; i++) {
+      const zombie = this.zombies[i];
+      let newX = zombie.x;
+      let newY = zombie.y;
+
       // If stunned, apply knockback instead of following player
       if (zombie.stunned) {
         // Apply knockback movement
         if (zombie.knockbackVelocityX !== 0 || zombie.knockbackVelocityY !== 0) {
-          zombie.x += zombie.knockbackVelocityX * deltaSeconds;
-          zombie.y += zombie.knockbackVelocityY * deltaSeconds;
+          newX += zombie.knockbackVelocityX * deltaSeconds;
+          newY += zombie.knockbackVelocityY * deltaSeconds;
 
           // Decay knockback velocity
           zombie.knockbackVelocityX *= 0.9;
@@ -1147,22 +1168,84 @@ export class GameScene extends Phaser.Scene {
         const dy = playerY - zombie.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
 
-        if (distance > 5) {  // Only move if not too close
+        // Check if close enough to attack
+        const attackRange = minDistance + 5;
+        if (distance <= attackRange) {
+          // Start or continue attack
+          if (!zombie.isAttacking) {
+            zombie.isAttacking = true;
+            zombie.attackTimer = 0;
+            // Start attack animation (raise arms)
+            this.startZombieAttackAnimation(zombie);
+          }
+
+          // Update attack timer
+          zombie.attackTimer += delta;
+
+          if (zombie.attackTimer >= zombie.attackDuration) {
+            // Attack lands!
+            this.zombieHitsPlayer(zombie);
+            zombie.isAttacking = false;
+            zombie.attackTimer = 0;
+          }
+        } else {
+          // Too far to attack, move closer
+          if (zombie.isAttacking) {
+            // Cancel attack if player moved away
+            zombie.isAttacking = false;
+            zombie.attackTimer = 0;
+            this.stopZombieAttackAnimation(zombie);
+          }
+
           // Normalize and apply speed
           const vx = (dx / distance) * this.zombieSpeed * deltaSeconds;
           const vy = (dy / distance) * this.zombieSpeed * deltaSeconds;
 
-          // Update position
-          zombie.x += vx;
-          zombie.y += vy;
+          newX += vx;
+          newY += vy;
+        }
 
-          // Update facing direction
-          zombie.facingRight = dx > 0;
-          zombie.setFlipX(!zombie.facingRight);
+        // Update facing direction
+        zombie.facingRight = dx > 0;
+        zombie.setFlipX(!zombie.facingRight);
+      }
+
+      // Check collision with player
+      const dxPlayer = newX - playerX;
+      const dyPlayer = newY - playerY;
+      const distToPlayer = Math.sqrt(dxPlayer * dxPlayer + dyPlayer * dyPlayer);
+
+      if (distToPlayer < minDistance && distToPlayer > 0) {
+        // Push zombie back to minimum distance from player
+        const pushBackX = (dxPlayer / distToPlayer) * minDistance;
+        const pushBackY = (dyPlayer / distToPlayer) * minDistance;
+        newX = playerX + pushBackX;
+        newY = playerY + pushBackY;
+      }
+
+      // Check collision with other zombies
+      for (let j = 0; j < this.zombies.length; j++) {
+        if (i === j) continue;
+        const other = this.zombies[j];
+        const dxOther = newX - other.x;
+        const dyOther = newY - other.y;
+        const distToOther = Math.sqrt(dxOther * dxOther + dyOther * dyOther);
+        const minZombieDist = this.zombieCollisionRadius * 2;
+
+        if (distToOther < minZombieDist && distToOther > 0) {
+          // Push this zombie away from the other
+          const pushX = (dxOther / distToOther) * (minZombieDist - distToOther) * 0.5;
+          const pushY = (dyOther / distToOther) * (minZombieDist - distToOther) * 0.5;
+          newX += pushX;
+          newY += pushY;
         }
       }
 
-      // Keep within play area bounds (applies to both stunned and normal movement)
+      // Apply new position
+      zombie.x = newX;
+      zombie.y = newY;
+
+      // Keep within play area bounds
       const zombieBottom = zombie.y + zombie.height / 2;
       if (zombieBottom < this.playAreaTop) {
         zombie.y = this.playAreaTop - zombie.height / 2;
@@ -1202,6 +1285,236 @@ export class GameScene extends Phaser.Scene {
     } else {
       zombie.healthBarFill.setFillStyle(0xff0000); // Red
     }
+  }
+
+  startZombieAttackAnimation(zombie) {
+    // Tint zombie orange to show attack charging
+    zombie.setTint(0xff8800);
+
+    // Create a pulsing/shaking effect
+    if (zombie.attackTween) {
+      zombie.attackTween.stop();
+    }
+
+    zombie.attackTween = this.tweens.add({
+      targets: zombie,
+      scaleX: 1.1,
+      scaleY: 0.95,
+      duration: 200,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut'
+    });
+  }
+
+  stopZombieAttackAnimation(zombie) {
+    // Reset zombie appearance
+    zombie.clearTint();
+    zombie.setScale(1, 1);
+
+    if (zombie.attackTween) {
+      zombie.attackTween.stop();
+      zombie.attackTween = null;
+    }
+  }
+
+  zombieHitsPlayer(zombie) {
+    // Don't process hits if game is over
+    if (this.isGameOver) return;
+
+    // Stop the attack animation
+    this.stopZombieAttackAnimation(zombie);
+
+    // Flash zombie white briefly for the hit
+    zombie.setTint(0xffffff);
+    this.time.delayedCall(100, () => {
+      if (zombie.active) {
+        zombie.clearTint();
+      }
+    });
+
+    // Reduce player health
+    this.playerHealth--;
+    this.updatePlayerHealthBar();
+
+    // Check for death
+    if (this.playerHealth <= 0) {
+      this.playerDeath();
+    } else {
+      // Show "Ouch!" balloon above player
+      this.showPlayerOuchBalloon();
+    }
+  }
+
+  updatePlayerHealthBar() {
+    const healthPercent = this.playerHealth / this.playerMaxHealth;
+    this.playerHealthBarFill.width = 34 * healthPercent;
+
+    // Change color based on health
+    if (healthPercent > 0.6) {
+      this.playerHealthBarFill.setFillStyle(0x00ff00); // Green
+    } else if (healthPercent > 0.3) {
+      this.playerHealthBarFill.setFillStyle(0xffff00); // Yellow
+    } else {
+      this.playerHealthBarFill.setFillStyle(0xff0000); // Red
+    }
+  }
+
+  playerDeath() {
+    this.isGameOver = true;
+
+    // Show "Oh, no!" balloon
+    const balloonX = this.player.x;
+    const balloonY = this.player.y - this.player.height / 2 - 20;
+
+    const balloon = this.add.graphics();
+    balloon.fillStyle(0xffffff, 0.9);
+    balloon.fillRoundedRect(-32, -12, 64, 24, 6);
+    balloon.fillTriangle(-4, 12, 4, 12, 0, 18);
+    balloon.x = balloonX;
+    balloon.y = balloonY;
+    balloon.setDepth(2000);
+
+    const ohNoText = this.add.text(balloonX, balloonY, 'Oh, no!', {
+      fontSize: '14px',
+      fontStyle: 'bold',
+      fill: '#cc0000',
+    }).setOrigin(0.5, 0.5).setDepth(2001);
+
+    // After balloon shows, play death animation
+    this.time.delayedCall(1000, () => {
+      balloon.destroy();
+      ohNoText.destroy();
+
+      // Switch to fallen sprite
+      this.player.setTexture('player_fallen');
+      this.player.setFlipX(!this.facingRight);
+
+      // Hide health bar
+      this.playerHealthBarBg.setVisible(false);
+      this.playerHealthBarFill.setVisible(false);
+
+      // Fade to black and show Game Over
+      this.time.delayedCall(500, () => {
+        this.showGameOver();
+      });
+    });
+  }
+
+  showGameOver() {
+    // Create black overlay
+    const overlay = this.add.rectangle(
+      this.cameras.main.scrollX + this.screenWidth / 2,
+      this.screenHeight / 2,
+      this.screenWidth,
+      this.screenHeight,
+      0x000000,
+      0
+    );
+    overlay.setDepth(3000);
+    overlay.setScrollFactor(0);
+
+    // Fade in the overlay
+    this.tweens.add({
+      targets: overlay,
+      alpha: 0.8,
+      duration: 1000,
+      onComplete: () => {
+        // Show Game Over text with sinister style
+        const gameOverText = this.add.text(
+          this.screenWidth / 2,
+          this.screenHeight / 2 - 30,
+          'GAME OVER',
+          {
+            fontSize: '64px',
+            fontFamily: 'Georgia, serif',
+            fontStyle: 'bold',
+            fill: '#8b0000',
+            stroke: '#000000',
+            strokeThickness: 6,
+          }
+        );
+        gameOverText.setOrigin(0.5, 0.5);
+        gameOverText.setDepth(3001);
+        gameOverText.setScrollFactor(0);
+        gameOverText.setAlpha(0);
+
+        // Subtitle
+        const subtitleText = this.add.text(
+          this.screenWidth / 2,
+          this.screenHeight / 2 + 30,
+          'The zombies got you...',
+          {
+            fontSize: '24px',
+            fontFamily: 'Georgia, serif',
+            fontStyle: 'italic',
+            fill: '#666666',
+          }
+        );
+        subtitleText.setOrigin(0.5, 0.5);
+        subtitleText.setDepth(3001);
+        subtitleText.setScrollFactor(0);
+        subtitleText.setAlpha(0);
+
+        // Fade in Game Over text
+        this.tweens.add({
+          targets: gameOverText,
+          alpha: 1,
+          duration: 800,
+          ease: 'Power2'
+        });
+
+        this.tweens.add({
+          targets: subtitleText,
+          alpha: 1,
+          duration: 800,
+          delay: 400,
+          ease: 'Power2'
+        });
+      }
+    });
+  }
+
+  showPlayerOuchBalloon() {
+    // Create balloon above player
+    const balloonX = this.player.x;
+    const balloonY = this.player.y - this.player.height / 2 - 20;
+
+    const balloon = this.add.graphics();
+    balloon.fillStyle(0xffffff, 0.9);
+    balloon.fillRoundedRect(-28, -12, 56, 24, 6);
+    // Small triangle pointer
+    balloon.fillTriangle(-4, 12, 4, 12, 0, 18);
+    balloon.x = balloonX;
+    balloon.y = balloonY;
+    balloon.setDepth(2000);
+
+    const ouchText = this.add.text(balloonX, balloonY, 'Ouch!', {
+      fontSize: '14px',
+      fontStyle: 'bold',
+      fill: '#cc0000',
+    }).setOrigin(0.5, 0.5).setDepth(2001);
+
+    // Flash player red
+    this.player.setTint(0xff0000);
+    this.time.delayedCall(200, () => {
+      if (this.player.active) {
+        this.player.clearTint();
+      }
+    });
+
+    // Fade out balloon and destroy
+    this.tweens.add({
+      targets: [balloon, ouchText],
+      alpha: 0,
+      y: balloonY - 15,
+      duration: 600,
+      delay: 400,
+      onComplete: () => {
+        balloon.destroy();
+        ouchText.destroy();
+      }
+    });
   }
 
   checkBulletZombieCollisions() {
@@ -1245,6 +1558,13 @@ export class GameScene extends Phaser.Scene {
             zombie.setTint(0xff0000);
             zombie.stunned = true;
 
+            // Cancel any attack in progress
+            if (zombie.isAttacking) {
+              zombie.isAttacking = false;
+              zombie.attackTimer = 0;
+              this.stopZombieAttackAnimation(zombie);
+            }
+
             // Show "huh?" balloon
             this.showZombieHuhBalloon(zombie);
 
@@ -1273,6 +1593,13 @@ export class GameScene extends Phaser.Scene {
     const startY = (this.playAreaTop + this.playAreaBottom) / 2;
 
     this.player = this.add.sprite(startX, startY, 'player_fists');
+
+    // Create player health bar
+    this.playerHealthBarBg = this.add.rectangle(startX, startY - this.player.height / 2 - 10, 36, 5, 0x000000);
+    this.playerHealthBarBg.setDepth(1999);
+    this.playerHealthBarFill = this.add.rectangle(startX - 17, startY - this.player.height / 2 - 10, 34, 3, 0x00ff00);
+    this.playerHealthBarFill.setOrigin(0, 0.5);
+    this.playerHealthBarFill.setDepth(2000);
   }
 
   createUI() {
@@ -1499,6 +1826,13 @@ export class GameScene extends Phaser.Scene {
           // Flash zombie red briefly and apply knockback
           zombie.setTint(0xff0000);
           zombie.stunned = true;
+
+          // Cancel any attack in progress
+          if (zombie.isAttacking) {
+            zombie.isAttacking = false;
+            zombie.attackTimer = 0;
+            this.stopZombieAttackAnimation(zombie);
+          }
 
           // Apply knockback velocity (push away from player)
           const knockbackSpeed = 150;
@@ -1762,5 +2096,13 @@ export class GameScene extends Phaser.Scene {
 
     // Update depth based on Y position for proper layering
     this.player.setDepth(this.player.y + this.player.height / 2);
+
+    // Update player health bar position
+    this.playerHealthBarBg.x = this.player.x;
+    this.playerHealthBarBg.y = this.player.y - this.player.height / 2 - 10;
+    this.playerHealthBarBg.setDepth(this.player.depth + 1);
+    this.playerHealthBarFill.x = this.player.x - 17;
+    this.playerHealthBarFill.y = this.player.y - this.player.height / 2 - 10;
+    this.playerHealthBarFill.setDepth(this.player.depth + 2);
   }
 }
