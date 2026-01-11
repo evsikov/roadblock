@@ -39,6 +39,7 @@ export class GameScene extends Phaser.Scene {
     this.gunAmmo = 10;
     this.shotgunAmmo = 4;
     this.ammoIcons = [];
+    this.ammoCountTexts = {};
 
     // Player health
     this.playerMaxHealth = 10;
@@ -46,6 +47,16 @@ export class GameScene extends Phaser.Scene {
     this.playerHealthBar = null;
     this.playerHealthBarFill = null;
     this.isGameOver = false;
+    this.isRunning = false;
+    this.runTween = null;
+    this.fallTween = null;
+    this.getUpTimer = null;
+    this.isProne = false;
+    this.isProneActive = false;
+    this.proneTween = null;
+    this.proneStandY = null;
+    this.preProneTexture = null;
+    this.proneOffsetY = 8;
 
     // Player direction (true = facing right/east, false = facing left/west)
     this.facingRight = true;
@@ -76,13 +87,21 @@ export class GameScene extends Phaser.Scene {
     this.zombies = [];
     this.zombieSpeed = 60;  // Slow movement speed
     this.zombieSpawnCount = 30;  // Number of zombies to spawn
+
+    this.levelIndex = 0;
+    this.levelTransitioning = false;
+  }
+
+  init(data) {
+    this.levelIndex = data?.levelIndex ?? 0;
+    this.levelTransitioning = false;
   }
 
   preload() {
     this.createTextures();
   }
 
-  createPlayerSprite(graphics, textureName, isGun) {
+  createPlayerSprite(graphics, textureName, isGun, legOffset = 0, legLift = 0) {
     // Muscled girl wearing rags - 40x52 sprite
     const w = 40;
     const h = 52;
@@ -183,17 +202,20 @@ export class GameScene extends Phaser.Scene {
     graphics.fillRect(24, 41, 4, 3);
 
     // Legs
+    const legY = 44 + legLift;
+    const legHeight = 8 - legLift;
+    const bootY = legY + legHeight - 4;
     graphics.fillStyle(skin, 1);
-    graphics.fillRect(12, 44, 6, 8);  // Left leg
-    graphics.fillRect(20, 44, 6, 8);  // Right leg
+    graphics.fillRect(12 - legOffset, legY, 6, legHeight);  // Left leg
+    graphics.fillRect(20 + legOffset, legY, 6, legHeight);  // Right leg
     graphics.fillStyle(skinDark, 1);
-    graphics.fillRect(12, 44, 2, 8);
-    graphics.fillRect(24, 44, 2, 8);
+    graphics.fillRect(12 - legOffset, legY, 2, legHeight);
+    graphics.fillRect(24 + legOffset, legY, 2, legHeight);
 
     // Boots
     graphics.fillStyle(clothDark, 1);
-    graphics.fillRect(11, 48, 8, 4);
-    graphics.fillRect(19, 48, 8, 4);
+    graphics.fillRect(11 - legOffset, bootY, 8, 4);
+    graphics.fillRect(19 + legOffset, bootY, 8, 4);
 
     // Right arm holding weapon
     graphics.fillStyle(skin, 1);
@@ -227,7 +249,7 @@ export class GameScene extends Phaser.Scene {
     graphics.clear();
   }
 
-  createPlayerFistsSprite(graphics) {
+  createPlayerFistsSprite(graphics, textureName, legOffset = 0, legLift = 0) {
     // Muscled girl with fists raised - 40x52 sprite
     const w = 40;
     const h = 52;
@@ -330,19 +352,22 @@ export class GameScene extends Phaser.Scene {
     graphics.fillRect(24, 41, 4, 3);
 
     // Legs
+    const legY = 44 + legLift;
+    const legHeight = 8 - legLift;
+    const bootY = legY + legHeight - 4;
     graphics.fillStyle(skin, 1);
-    graphics.fillRect(12, 44, 6, 8);
-    graphics.fillRect(20, 44, 6, 8);
+    graphics.fillRect(12 - legOffset, legY, 6, legHeight);
+    graphics.fillRect(20 + legOffset, legY, 6, legHeight);
     graphics.fillStyle(skinDark, 1);
-    graphics.fillRect(12, 44, 2, 8);
-    graphics.fillRect(24, 44, 2, 8);
+    graphics.fillRect(12 - legOffset, legY, 2, legHeight);
+    graphics.fillRect(24 + legOffset, legY, 2, legHeight);
 
     // Boots
     graphics.fillStyle(clothDark, 1);
-    graphics.fillRect(11, 48, 8, 4);
-    graphics.fillRect(19, 48, 8, 4);
+    graphics.fillRect(11 - legOffset, bootY, 8, 4);
+    graphics.fillRect(19 + legOffset, bootY, 8, 4);
 
-    graphics.generateTexture('player_fists', w, h);
+    graphics.generateTexture(textureName, w, h);
     graphics.clear();
   }
 
@@ -502,13 +527,25 @@ export class GameScene extends Phaser.Scene {
     const graphics = this.add.graphics();
 
     // Create muscled girl with fists texture
-    this.createPlayerFistsSprite(graphics);
+    this.createPlayerFistsSprite(graphics, 'player_fists');
+    this.createPlayerFistsSprite(graphics, 'player_fists_run1', 2);
+    this.createPlayerFistsSprite(graphics, 'player_fists_run2', -2);
+    this.createPlayerFistsSprite(graphics, 'player_fists_getup1', 0, 2);
+    this.createPlayerFistsSprite(graphics, 'player_fists_getup2', 0, 1);
 
     // Create muscled girl with gun texture
     this.createPlayerSprite(graphics, 'player_gun', true);
+    this.createPlayerSprite(graphics, 'player_gun_run1', true, 2);
+    this.createPlayerSprite(graphics, 'player_gun_run2', true, -2);
+    this.createPlayerSprite(graphics, 'player_gun_getup1', true, 0, 2);
+    this.createPlayerSprite(graphics, 'player_gun_getup2', true, 0, 1);
 
     // Create muscled girl with shotgun texture
     this.createPlayerSprite(graphics, 'player_shotgun', false);
+    this.createPlayerSprite(graphics, 'player_shotgun_run1', false, 2);
+    this.createPlayerSprite(graphics, 'player_shotgun_run2', false, -2);
+    this.createPlayerSprite(graphics, 'player_shotgun_getup1', false, 0, 2);
+    this.createPlayerSprite(graphics, 'player_shotgun_getup2', false, 0, 1);
 
     // Create fallen player texture (lying down)
     this.createFallenSprite(graphics);
@@ -807,14 +844,40 @@ export class GameScene extends Phaser.Scene {
     // Set up world bounds for the extended level
     this.physics.world.setBounds(0, 0, this.levelWidth, this.screenHeight);
 
+    this.input.keyboard.enabled = true;
+
     this.createLevel();
     this.createDirtStreams();
     this.createObstacles();
     this.createZombies();
     this.createPlayer();
+    this.createAnimations();
     this.createUI();
     this.setupInput();
     this.setupCamera();
+  }
+
+  createAnimations() {
+    this.anims.create({
+      key: 'player_run_fists',
+      frames: [{ key: 'player_fists_run1' }, { key: 'player_fists_run2' }],
+      frameRate: 6,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: 'player_run_gun',
+      frames: [{ key: 'player_gun_run1' }, { key: 'player_gun_run2' }],
+      frameRate: 6,
+      repeat: -1,
+    });
+
+    this.anims.create({
+      key: 'player_run_shotgun',
+      frames: [{ key: 'player_shotgun_run1' }, { key: 'player_shotgun_run2' }],
+      frameRate: 6,
+      repeat: -1,
+    });
   }
 
   setupCamera() {
@@ -825,6 +888,7 @@ export class GameScene extends Phaser.Scene {
 
   createLevel() {
     const height = this.screenHeight;
+    const isForestLevel = this.levelIndex === 1;
 
     // Night sky background - fixed to camera (scrollFactor 0)
     this.add.rectangle(this.screenWidth / 2, 0, this.screenWidth, 280, 0x0a0a1f)
@@ -848,46 +912,71 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(-98);
 
-    // Dramatic cliff with castle on top - distant parallax background
-    // Cliff rises from bottom, castle perched on top
-    this.cliff = this.add.image(720, 200, 'cliff')
-      .setScale(0.8)
-      .setScrollFactor(0.05)
-      .setDepth(-50);
+    if (!isForestLevel) {
+      // Dramatic cliff with castle on top - distant parallax background
+      // Cliff rises from bottom, castle perched on top
+      this.cliff = this.add.image(720, 200, 'cliff')
+        .setScale(0.8)
+        .setScrollFactor(0.05)
+        .setDepth(-50);
 
-    this.castle = this.add.image(720, 68, 'castle')
-      .setScale(0.4)
-      .setScrollFactor(0.05)
-      .setDepth(-49);
+      this.castle = this.add.image(720, 68, 'castle')
+        .setScale(0.4)
+        .setScrollFactor(0.05)
+        .setDepth(-49);
+    }
 
     // Create tiled ground across the entire level
     for (let x = 0; x < this.levelWidth; x += 32) {
-      // Corn field (top area) - darker for night
+      // Forest canopy (top area)
       for (let y = 280; y < this.playAreaTop; y += 32) {
-        this.add.image(x + 16, y + 16, 'grass').setTint(0x1a3010).setDepth(-10);
+        const tint = isForestLevel ? 0x0f2010 : 0x1a3010;
+        this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
       }
 
-      // Sandy road (middle play area) - darker for night
+      // Road (middle play area)
       for (let y = this.playAreaTop; y < this.playAreaBottom; y += 32) {
-        this.add.image(x + 16, y + 16, 'sand').setTint(0x6a5040).setDepth(-10);
+        if (isForestLevel) {
+          this.add.image(x + 16, y + 16, 'grass').setTint(0x2a4a20).setDepth(-10);
+        } else {
+          this.add.image(x + 16, y + 16, 'sand').setTint(0x6a5040).setDepth(-10);
+        }
       }
 
-      // Grass field (bottom area) - darker for night
+      // Forest floor (bottom area)
       for (let y = this.playAreaBottom; y < height; y += 32) {
-        this.add.image(x + 16, y + 16, 'grass').setTint(0x1a3510).setDepth(-10);
+        const tint = isForestLevel ? 0x102510 : 0x1a3510;
+        this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
       }
     }
 
-    // Corn stalks across the level
-    for (let x = 0; x < this.levelWidth; x += 20) {
-      const offsetX = (Math.floor(x / 20) % 2) * 10;
-      for (let row = 0; row < 2; row++) {
-        const y = 295 + row * 30;
-        if (y < this.playAreaTop - 10) {
-          const corn = this.add.image(x + offsetX, y, 'corn');
-          corn.setTint(0x2a4a20);
-          corn.setDepth(y);
+    if (!isForestLevel) {
+      // Corn stalks across the level
+      for (let x = 0; x < this.levelWidth; x += 20) {
+        const offsetX = (Math.floor(x / 20) % 2) * 10;
+        for (let row = 0; row < 2; row++) {
+          const y = 295 + row * 30;
+          if (y < this.playAreaTop - 10) {
+            const corn = this.add.image(x + offsetX, y, 'corn');
+            corn.setTint(0x2a4a20);
+            corn.setDepth(y);
+          }
         }
+      }
+    } else {
+      // Dark forest silhouettes above/below the road
+      for (let i = 0; i < 40; i++) {
+        const topX = Math.random() * this.levelWidth;
+        const topY = 260 + Math.random() * 70;
+        this.add.circle(topX, topY, 18 + Math.random() * 18, 0x0a1208, 0.9)
+          .setDepth(-9);
+      }
+
+      for (let i = 0; i < 40; i++) {
+        const bottomX = Math.random() * this.levelWidth;
+        const bottomY = this.playAreaBottom + 20 + Math.random() * 70;
+        this.add.circle(bottomX, bottomY, 18 + Math.random() * 18, 0x0a1208, 0.9)
+          .setDepth(-9);
       }
     }
 
@@ -898,6 +987,39 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(this.levelWidth / 2, this.playAreaBottom, this.levelWidth, 4, 0x2a4a15)
       .setOrigin(0.5, 0.5)
       .setDepth(-5);
+  }
+
+  showForestSign() {
+    const centerX = this.screenWidth / 2;
+    const centerY = this.screenHeight / 2 - 40;
+
+    const signBg = this.add.rectangle(centerX, centerY, 500, 70, 0x0b0b0b, 0.85);
+    signBg.setDepth(4000);
+    signBg.setScrollFactor(0);
+
+    const signText = this.add.text(centerX, centerY, 'Dark Forest Waits Ahead...', {
+      fontSize: '28px',
+      fontFamily: 'Georgia, serif',
+      fontStyle: 'italic',
+      fill: '#c9d1c3',
+      stroke: '#000000',
+      strokeThickness: 4,
+    });
+    signText.setOrigin(0.5, 0.5);
+    signText.setDepth(4001);
+    signText.setScrollFactor(0);
+
+    this.tweens.add({
+      targets: [signBg, signText],
+      alpha: 0,
+      duration: 1200,
+      delay: 1000,
+      onComplete: () => {
+        signBg.destroy();
+        signText.destroy();
+        this.scene.restart({ levelIndex: 1 });
+      }
+    });
   }
 
   createDirtStreams() {
@@ -980,6 +1102,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Place pits randomly - pits don't block movement, stored separately
+    const startPit = this.add.image(140, (this.playAreaTop + this.playAreaBottom) / 2 + 20, 'pit');
+    startPit.footY = startPit.y + startPit.height / 2;
+    startPit.setDepth(0);
+    this.pits.push(startPit);
+
     for (let i = 0; i < numPits; i++) {
       const x = startX + Math.random() * (endX - startX);
       const y = this.playAreaTop + 20 + Math.random() * (this.playAreaBottom - this.playAreaTop - 40);
@@ -1052,6 +1179,11 @@ export class GameScene extends Phaser.Scene {
     if (this.isFallen) return;
 
     this.isFallen = true;
+    this.isProne = false;
+    this.isProneActive = false;
+    this.isRunning = false;
+    this.player.anims.stop();
+    this.stopRunTween();
 
     // Store current texture to restore later
     if (this.currentWeapon === 'fists') {
@@ -1062,22 +1194,81 @@ export class GameScene extends Phaser.Scene {
       this.preFallTexture = 'player_shotgun';
     }
 
-    // Switch to fallen texture
-    this.player.setTexture('player_fallen');
-    this.player.setFlipX(!this.facingRight);
+    if (this.fallTween) {
+      this.fallTween.stop();
+    }
+    if (this.getUpTimer) {
+      this.getUpTimer.remove(false);
+      this.getUpTimer = null;
+    }
+
+    const fallTargetY = this.player.y + 6;
+    this.fallTween = this.tweens.add({
+      targets: this.player,
+      y: fallTargetY,
+      scaleX: 1.03,
+      scaleY: 0.8,
+      duration: 200,
+      ease: 'Sine.easeIn',
+      onComplete: () => {
+        this.player.setTexture('player_fallen');
+        this.player.setFlipX(!this.facingRight);
+        this.player.setScale(1, 1);
+        this.fallTween = null;
+      }
+    });
 
     // Schedule getting up
-    this.time.delayedCall(this.fallDuration, () => {
+    this.getUpTimer = this.time.delayedCall(this.fallDuration, () => {
+      this.getUpTimer = null;
       this.getUp();
     });
   }
 
   getUp() {
-    this.isFallen = false;
+    if (this.fallTween) {
+      this.fallTween.stop();
+    }
 
-    // Restore previous texture
-    this.player.setTexture(this.preFallTexture);
+    const getUpStartY = this.player.y;
+    const [getupStart, getupMid, getupEnd] = this.getUpTextureSequence();
+    this.player.setTexture(getupStart);
     this.player.setFlipX(!this.facingRight);
+    this.player.setScale(1, 0.8);
+
+    this.player.setTexture(getupStart);
+    this.fallTween = this.tweens.add({
+      targets: this.player,
+      y: getUpStartY - 5,
+      scaleY: 0.9,
+      duration: 180,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.player.setTexture(getupMid);
+        this.fallTween = this.tweens.add({
+          targets: this.player,
+          y: getUpStartY - 2,
+          scaleY: 0.98,
+          duration: 180,
+          ease: 'Sine.easeOut',
+          onComplete: () => {
+            this.player.setTexture(getupEnd);
+            this.fallTween = this.tweens.add({
+              targets: this.player,
+              y: getUpStartY,
+              scaleY: 1,
+              duration: 140,
+              ease: 'Sine.easeOut',
+              onComplete: () => {
+                this.player.setScale(1, 1);
+                this.isFallen = false;
+                this.fallTween = null;
+              }
+            });
+          }
+        });
+      }
+    });
   }
 
   isPlayerOverPit() {
@@ -1318,12 +1509,35 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  playZombieHitAnimation(zombie) {
+    if (zombie.hitTween) {
+      zombie.hitTween.stop();
+    }
+
+    zombie.setRotation(zombie.facingRight ? 0.15 : -0.15);
+    zombie.hitTween = this.tweens.add({
+      targets: zombie,
+      rotation: 0,
+      duration: 120,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        if (zombie.active) {
+          zombie.setRotation(0);
+        }
+        zombie.hitTween = null;
+      }
+    });
+  }
+
   zombieHitsPlayer(zombie) {
     // Don't process hits if game is over
     if (this.isGameOver) return;
 
     // Stop the attack animation
     this.stopZombieAttackAnimation(zombie);
+    this.playZombieHitAnimation(zombie);
 
     // Flash zombie white briefly for the hit
     zombie.setTint(0xffffff);
@@ -1362,6 +1576,12 @@ export class GameScene extends Phaser.Scene {
 
   playerDeath() {
     this.isGameOver = true;
+    this.input.keyboard.enabled = false;
+    this.isRunning = false;
+    this.isProne = false;
+    this.isProneActive = false;
+    this.player.anims.stop();
+    this.stopRunTween();
 
     // Show "Oh, no!" balloon
     const balloonX = this.player.x;
@@ -1627,6 +1847,37 @@ export class GameScene extends Phaser.Scene {
       icon.setAlpha(0.4);  // Inactive state
     });
 
+    // Ammo count text next to each weapon icon
+    this.ammoCountTexts = {
+      fists: this.add.text(10 + 16 + 18, iconY + 18, '', {
+        fontSize: '12px',
+        fontStyle: 'bold',
+        fill: '#e6e0c8',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }),
+      gun: this.add.text(10 + 16 + iconSpacing + 18, iconY + 18, String(this.gunAmmo), {
+        fontSize: '12px',
+        fontStyle: 'bold',
+        fill: '#e6e0c8',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }),
+      shotgun: this.add.text(10 + 16 + iconSpacing * 2 + 18, iconY + 18, String(this.shotgunAmmo), {
+        fontSize: '12px',
+        fontStyle: 'bold',
+        fill: '#e6e0c8',
+        stroke: '#000000',
+        strokeThickness: 2,
+      }),
+    };
+
+    Object.values(this.ammoCountTexts).forEach(text => {
+      text.setOrigin(0, 0.5);
+      text.setDepth(2001);
+      text.setScrollFactor(0);
+    });
+
     // Highlight current weapon
     this.updateWeaponIcons();
 
@@ -1681,10 +1932,172 @@ export class GameScene extends Phaser.Scene {
         this.ammoIcons.push(icon);
       }
     }
+
+    this.updateAmmoCountText();
   }
 
   updateAmmoDisplay() {
     this.createAmmoDisplay();
+  }
+
+  updateAmmoCountText() {
+    if (this.ammoCountTexts.fists) {
+      this.ammoCountTexts.fists.setText('');
+    }
+    if (this.ammoCountTexts.gun) {
+      this.ammoCountTexts.gun.setText(String(this.gunAmmo));
+    }
+    if (this.ammoCountTexts.shotgun) {
+      this.ammoCountTexts.shotgun.setText(String(this.shotgunAmmo));
+    }
+  }
+
+  getIdleTextureForWeapon() {
+    if (this.currentWeapon === 'gun') {
+      return 'player_gun';
+    }
+    if (this.currentWeapon === 'shotgun') {
+      return 'player_shotgun';
+    }
+    return 'player_fists';
+  }
+
+  setPlayerTextureForWeapon() {
+    const idleTexture = this.getIdleTextureForWeapon();
+    if (this.isProne) {
+      this.preProneTexture = idleTexture;
+      return;
+    }
+
+    this.player.setTexture(idleTexture);
+    this.player.setFlipX(!this.facingRight);
+  }
+
+  getRunAnimationKey() {
+    if (this.currentWeapon === 'gun') {
+      return 'player_run_gun';
+    }
+    if (this.currentWeapon === 'shotgun') {
+      return 'player_run_shotgun';
+    }
+    return 'player_run_fists';
+  }
+
+  getUpTextureSequence() {
+    if (this.preFallTexture === 'player_gun') {
+      return ['player_gun_getup1', 'player_gun_getup2', 'player_gun'];
+    }
+    if (this.preFallTexture === 'player_shotgun') {
+      return ['player_shotgun_getup1', 'player_shotgun_getup2', 'player_shotgun'];
+    }
+    return ['player_fists_getup1', 'player_fists_getup2', 'player_fists'];
+  }
+
+  startProne() {
+    if (this.isGameOver || this.isFallen || this.isProne) return;
+
+    this.isProne = true;
+    this.isProneActive = false;
+    this.isRunning = false;
+    this.player.anims.stop();
+    this.stopRunTween();
+
+    this.preProneTexture = this.getIdleTextureForWeapon();
+    this.proneStandY = this.player.y;
+
+    if (this.proneTween) {
+      this.proneTween.stop();
+    }
+
+    this.proneTween = this.tweens.add({
+      targets: this.player,
+      y: this.proneStandY + this.proneOffsetY,
+      scaleY: 0.85,
+      duration: 120,
+      ease: 'Sine.easeIn',
+      onComplete: () => {
+        this.player.setTexture('player_fallen');
+        this.player.setFlipX(!this.facingRight);
+        this.player.setScale(1, 1);
+        this.isProneActive = true;
+        this.proneTween = null;
+      }
+    });
+  }
+
+  stopProne() {
+    if (this.isGameOver || this.isFallen || !this.isProne) return;
+
+    if (this.proneTween) {
+      this.proneTween.stop();
+    }
+
+    const standY = this.proneStandY ?? this.player.y - this.proneOffsetY;
+    const standTexture = this.preProneTexture || this.getIdleTextureForWeapon();
+    this.player.setTexture(standTexture);
+    this.player.setFlipX(!this.facingRight);
+    this.player.setScale(1, 0.85);
+    this.isProneActive = false;
+
+    this.proneTween = this.tweens.add({
+      targets: this.player,
+      y: standY,
+      scaleY: 1,
+      duration: 640,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.player.setScale(1, 1);
+        this.isProne = false;
+        this.preProneTexture = null;
+        this.proneTween = null;
+      }
+    });
+  }
+
+  startRunTween() {
+    if (this.runTween) return;
+    this.runTween = this.tweens.add({
+      targets: this.player,
+      scaleX: 1.02,
+      scaleY: 0.98,
+      duration: 160,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  stopRunTween() {
+    if (!this.runTween) return;
+    this.runTween.stop();
+    this.runTween = null;
+    this.player.setScale(1, 1);
+  }
+
+  updatePlayerRunState(isMoving) {
+    if (this.isGameOver || this.isFallen) return;
+    if (this.isProne) {
+      if (this.isRunning) {
+        this.isRunning = false;
+      }
+      this.player.anims.stop();
+      this.stopRunTween();
+      return;
+    }
+
+    if (isMoving) {
+      this.isRunning = true;
+      const runKey = this.getRunAnimationKey();
+      if (!this.player.anims.currentAnim || this.player.anims.currentAnim.key !== runKey || !this.player.anims.isPlaying) {
+        this.player.anims.play(runKey, true);
+      }
+      this.startRunTween();
+    } else if (this.isRunning) {
+      this.isRunning = false;
+      this.player.anims.stop();
+      this.player.setTexture(this.getIdleTextureForWeapon());
+      this.stopRunTween();
+    }
   }
 
   setupInput() {
@@ -1698,37 +2111,74 @@ export class GameScene extends Phaser.Scene {
 
     // Weapon selection
     this.input.keyboard.on('keydown-ONE', () => {
+      if (this.isGameOver) return;
       this.currentWeapon = 'fists';
-      this.player.setTexture('player_fists');
-      this.player.setFlipX(!this.facingRight);
+      this.setPlayerTextureForWeapon();
       this.updateWeaponIcons();
       this.updateAmmoDisplay();
+      if (this.isRunning) {
+        this.player.anims.play(this.getRunAnimationKey(), true);
+      }
     });
 
     this.input.keyboard.on('keydown-TWO', () => {
+      if (this.isGameOver) return;
       this.currentWeapon = 'gun';
-      this.player.setTexture('player_gun');
-      this.player.setFlipX(!this.facingRight);
+      this.setPlayerTextureForWeapon();
       this.updateWeaponIcons();
       this.updateAmmoDisplay();
+      if (this.isRunning) {
+        this.player.anims.play(this.getRunAnimationKey(), true);
+      }
     });
 
     this.input.keyboard.on('keydown-THREE', () => {
+      if (this.isGameOver) return;
       this.currentWeapon = 'shotgun';
-      this.player.setTexture('player_shotgun');
-      this.player.setFlipX(!this.facingRight);
+      this.setPlayerTextureForWeapon();
       this.updateWeaponIcons();
       this.updateAmmoDisplay();
+      if (this.isRunning) {
+        this.player.anims.play(this.getRunAnimationKey(), true);
+      }
     });
 
     // Shooting
     this.input.keyboard.on('keydown-SPACE', () => {
       this.shoot();
     });
+    this.input.keyboard.on('keydown-Z', () => {
+      this.shoot();
+    });
+    this.input.keyboard.on('keydown-X', () => {
+      this.startProne();
+    });
+    this.input.keyboard.on('keyup-X', () => {
+      this.stopProne();
+    });
+    this.input.keyboard.on('keydown-P', () => {
+      this.changeLevel(1);
+    });
+    this.input.keyboard.on('keydown-O', () => {
+      this.changeLevel(-1);
+    });
+  }
+
+  changeLevel(delta) {
+    if (this.levelTransitioning) return;
+
+    const nextLevel = this.levelIndex + delta;
+    if (nextLevel < 0 || nextLevel > 1) return;
+
+    this.levelTransitioning = true;
+    this.input.keyboard.enabled = false;
+    this.player.anims.stop();
+    this.stopRunTween();
+    this.scene.restart({ levelIndex: nextLevel });
   }
 
   shoot() {
-    if (!this.canShoot || this.isFallen) return;
+    if (this.isGameOver || !this.canShoot || this.isFallen || (this.isProne && !this.isProneActive)) return;
 
     // Check if we have ammo (fists don't need ammo)
     if (this.currentWeapon === 'gun' && this.gunAmmo <= 0) {
@@ -1746,29 +2196,46 @@ export class GameScene extends Phaser.Scene {
       this.canShoot = true;
     });
 
-    // Spawn attack on the side the player is facing
-    const offsetX = this.facingRight ? this.player.width / 2 : -this.player.width / 2;
-    const attackX = this.player.x + offsetX;
-    const attackY = this.player.y;
+    let attackX = this.player.x;
+    let attackY = this.player.y;
+    let bulletVX = null;
+    let bulletVY = null;
+
+    if (this.isProneActive) {
+      attackY = this.player.y - this.player.height / 2;
+      bulletVX = 0;
+      bulletVY = -this.bulletSpeed;
+    } else {
+      const offsetX = this.facingRight ? this.player.width / 2 : -this.player.width / 2;
+      attackX = this.player.x + offsetX;
+    }
 
     if (this.currentWeapon === 'fists') {
       // Melee punch attack
-      this.performPunch(attackX, attackY);
+      if (!this.isProneActive) {
+        this.performPunch(attackX, attackY);
+      }
     } else if (this.currentWeapon === 'gun') {
       // Single bullet
-      this.createBullet(attackX, attackY, 'bullet', this.gunDamage);
+      this.createBullet(attackX, attackY, 'bullet', this.gunDamage, bulletVX, bulletVY);
       this.gunAmmo--;
       this.updateAmmoDisplay();
     } else if (this.currentWeapon === 'shotgun') {
       // Three pellets at different heights
-      this.createBullet(attackX, attackY - 20, 'pellet', this.shotgunDamage);
-      this.createBullet(attackX, attackY, 'pellet', this.shotgunDamage);
-      this.createBullet(attackX, attackY + 20, 'pellet', this.shotgunDamage);
+      if (this.isProneActive) {
+        this.createBullet(attackX - 8, attackY, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+        this.createBullet(attackX, attackY, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+        this.createBullet(attackX + 8, attackY, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+      } else {
+        this.createBullet(attackX, attackY - 20, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+        this.createBullet(attackX, attackY, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+        this.createBullet(attackX, attackY + 20, 'pellet', this.shotgunDamage, bulletVX, bulletVY);
+      }
       this.shotgunAmmo--;
       this.updateAmmoDisplay();
 
       // Check if on dirt - 40% chance to fall from shotgun recoil
-      if (this.isPlayerOnDirt() && Math.random() < this.fallChance) {
+      if (!this.isProneActive && this.isPlayerOnDirt() && Math.random() < this.fallChance) {
         this.playerFall();
       }
     }
@@ -1859,6 +2326,11 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+
+    // Chance to fall if punching on dirt/mud
+    if (this.isPlayerOnDirt() && Math.random() < 0.15) {
+      this.playerFall();
+    }
   }
 
   showOutOfAmmo() {
@@ -1929,11 +2401,20 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  createBullet(x, y, texture, damage) {
+  createBullet(x, y, texture, damage, velocityX = null, velocityY = null) {
     const bullet = this.add.sprite(x, y, texture);
     bullet.setDepth(900);
-    bullet.direction = this.facingRight ? 1 : -1;
-    bullet.setFlipX(!this.facingRight);
+    if (velocityX === null) {
+      bullet.vx = this.bulletSpeed * (this.facingRight ? 1 : -1);
+      bullet.vy = 0;
+      bullet.setFlipX(!this.facingRight);
+    } else {
+      bullet.vx = velocityX;
+      bullet.vy = velocityY ?? 0;
+      if (bullet.vx === 0 && bullet.vy < 0 && texture === 'bullet') {
+        bullet.setRotation(-Math.PI / 2);
+      }
+    }
     bullet.damage = damage;
     this.bullets.push(bullet);
   }
@@ -1943,10 +2424,11 @@ export class GameScene extends Phaser.Scene {
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
       const bullet = this.bullets[i];
-      bullet.x += this.bulletSpeed * bullet.direction * deltaSeconds;
+      bullet.x += bullet.vx * deltaSeconds;
+      bullet.y += bullet.vy * deltaSeconds;
 
       // Remove bullets that go off level bounds
-      if (bullet.x > this.levelWidth + 20 || bullet.x < -20) {
+      if (bullet.x > this.levelWidth + 20 || bullet.x < -20 || bullet.y < -20 || bullet.y > this.screenHeight + 20) {
         bullet.destroy();
         this.bullets.splice(i, 1);
       }
@@ -1994,6 +2476,19 @@ export class GameScene extends Phaser.Scene {
   update(time, delta) {
     if (!this.player) return;
 
+    if (!this.levelTransitioning && this.levelIndex === 0 && this.player.x >= this.levelWidth - 40) {
+      this.levelTransitioning = true;
+      this.input.keyboard.enabled = false;
+      this.player.anims.stop();
+      this.stopRunTween();
+      this.showForestSign();
+      return;
+    }
+
+    if (this.levelTransitioning) {
+      return;
+    }
+
     // Update bullets
     this.updateBullets(delta);
 
@@ -2006,8 +2501,8 @@ export class GameScene extends Phaser.Scene {
     // Check bullet-zombie collisions
     this.checkBulletZombieCollisions();
 
-    // If fallen, don't allow movement
-    if (this.isFallen) {
+    // If fallen or prone, don't allow movement
+    if (this.isFallen || this.isProne) {
       return;
     }
 
@@ -2048,6 +2543,9 @@ export class GameScene extends Phaser.Scene {
     } else if ((this.cursors.down.isDown || this.wasd.down.isDown) && !atBottomBoundary) {
       vy = this.playerSpeed * speedMultiplier;
     }
+
+    const isMoving = vx !== 0 || vy !== 0;
+    this.updatePlayerRunState(isMoving);
 
     // Calculate new position
     const deltaSeconds = delta / 1000;
