@@ -948,8 +948,15 @@ export class GameScene extends Phaser.Scene {
     };
 
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    this.handleWindowBlur = () => {
+      if (!this.isPaused) {
+        this.togglePause();
+      }
+    };
+    window.addEventListener('blur', this.handleWindowBlur);
     this.events.once('shutdown', () => {
       document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+      window.removeEventListener('blur', this.handleWindowBlur);
     });
   }
 
