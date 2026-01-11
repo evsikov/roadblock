@@ -124,6 +124,16 @@ export class GameScene extends Phaser.Scene {
 
   preload() {
     this.createTextures();
+    this.load.json('level1_map', 'assets/maps/level1.json');
+    this.load.json('level2_map', 'assets/maps/level2.json');
+    this.load.spritesheet('ground_tiles', 'assets/tiles/ground_tiles.svg', {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
+    this.load.spritesheet('object_tiles', 'assets/tiles/objects_tiles.svg', {
+      frameWidth: 80,
+      frameHeight: 55,
+    });
   }
 
   createPlayerSprite(graphics, textureName, isGun, legOffset = 0, legLift = 0) {
@@ -736,82 +746,12 @@ export class GameScene extends Phaser.Scene {
     graphics.generateTexture('shell_icon', 12, 16);
     graphics.clear();
 
-    // Create corn texture (single corn stalk)
-    graphics.fillStyle(0x228B22, 1);
-    graphics.fillRect(6, 20, 4, 30); // Stalk
-    graphics.fillStyle(0x9ACD32, 1);
-    graphics.fillRect(0, 10, 8, 20); // Left leaves
-    graphics.fillRect(8, 10, 8, 20); // Right leaves
-    graphics.fillStyle(0xFFD700, 1);
-    graphics.fillRect(4, 0, 8, 14); // Corn cob
-    graphics.generateTexture('corn', 16, 50);
-    graphics.clear();
-
-    // Create grass tile texture
-    graphics.fillStyle(0x4a7c23, 1);
-    graphics.fillRect(0, 0, 32, 32);
-    graphics.fillStyle(0x5a8c33, 1);
-    for (let i = 0; i < 8; i++) {
-      const x = Math.floor(i * 4);
-      graphics.fillRect(x, 0, 2, 8 + (i % 3) * 4);
-    }
-    graphics.generateTexture('grass', 32, 32);
-    graphics.clear();
-
-    // Create sandy road texture
-    graphics.fillStyle(0xc2a060, 1);
-    graphics.fillRect(0, 0, 32, 32);
-    graphics.fillStyle(0xb8956a, 1);
-    graphics.fillRect(5, 5, 4, 4);
-    graphics.fillRect(20, 15, 6, 4);
-    graphics.fillRect(10, 22, 5, 5);
-    graphics.generateTexture('sand', 32, 32);
-    graphics.clear();
-
-    // Create car texture
-    graphics.fillStyle(0x8B0000, 1); // Dark red body
-    graphics.fillRect(0, 10, 80, 35);
-    graphics.fillStyle(0x660000, 1); // Darker top
-    graphics.fillRect(15, 0, 50, 20);
-    graphics.fillStyle(0x87CEEB, 1); // Windows
-    graphics.fillRect(20, 3, 18, 14);
-    graphics.fillRect(42, 3, 18, 14);
-    graphics.fillStyle(0x222222, 1); // Wheels
-    graphics.fillCircle(15, 45, 10);
-    graphics.fillCircle(65, 45, 10);
-    graphics.fillStyle(0xFFFF00, 1); // Headlights
-    graphics.fillRect(75, 18, 5, 8);
-    graphics.fillRect(75, 30, 5, 8);
-    graphics.generateTexture('car', 80, 55);
-    graphics.clear();
-
-    // Create pit texture
-    graphics.fillStyle(0x3d2817, 1); // Dark brown edge
-    graphics.fillRect(0, 0, 60, 40);
-    graphics.fillStyle(0x1a1008, 1); // Black pit center
-    graphics.fillRect(5, 5, 50, 30);
-    graphics.fillStyle(0x2a1810, 1); // Slight depth shading
-    graphics.fillRect(8, 8, 44, 24);
-    graphics.generateTexture('pit', 60, 40);
-    graphics.clear();
-
     // Create dirt particle texture
     graphics.fillStyle(0x5c4033, 1);
     graphics.fillCircle(3, 3, 3);
     graphics.fillStyle(0x6b4c3a, 1);
     graphics.fillCircle(2, 2, 1);
     graphics.generateTexture('dirt', 6, 6);
-    graphics.clear();
-
-    // Create dirt stream segment texture
-    graphics.fillStyle(0x4a3828, 1);
-    graphics.fillRect(0, 0, 12, 12);
-    graphics.fillStyle(0x3a2818, 1);
-    graphics.fillRect(2, 2, 8, 8);
-    graphics.fillStyle(0x5a4838, 1);
-    graphics.fillRect(1, 1, 3, 3);
-    graphics.fillRect(7, 6, 4, 4);
-    graphics.generateTexture('dirtStream', 12, 12);
     graphics.clear();
 
     // Create moon texture
@@ -922,14 +862,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.input.keyboard.enabled = true;
+
+    this.mapData = this.cache.json.get(this.levelIndex === 1 ? 'level2_map' : 'level1_map');
+    if (this.mapData?.width && this.mapData?.tilewidth) {
+      this.levelWidth = this.mapData.width * this.mapData.tilewidth;
+    }
+
     // Set up world bounds for the extended level
     this.physics.world.setBounds(0, 0, this.levelWidth, this.screenHeight);
 
-    this.input.keyboard.enabled = true;
-
     this.createLevel();
-    this.createDirtStreams();
-    this.createObstacles();
+    this.createMapObjects();
     this.createZombies();
     this.createWerewolves();
     this.createPlayer();
@@ -1029,57 +973,62 @@ export class GameScene extends Phaser.Scene {
         .setDepth(-49);
     }
 
-    // Create tiled ground across the entire level
-    for (let x = 0; x < this.levelWidth; x += 32) {
-      // Forest canopy (top area)
-      for (let y = 280; y < this.playAreaTop; y += 32) {
-        const tint = isForestLevel ? 0x0f2010 : 0x1a3010;
-        this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
-      }
-
-      // Road (middle play area)
-      for (let y = this.playAreaTop; y < this.playAreaBottom; y += 32) {
-        if (isForestLevel) {
-          this.add.image(x + 16, y + 16, 'grass').setTint(0x2a4a20).setDepth(-10);
-        } else {
-          this.add.image(x + 16, y + 16, 'sand').setTint(0x6a5040).setDepth(-10);
+    const hasTileLayers = this.mapData?.layers?.some(layer => layer.type === 'tilelayer');
+    if (hasTileLayers) {
+      this.renderTileLayers();
+    } else {
+      // Create tiled ground across the entire level
+      for (let x = 0; x < this.levelWidth; x += 32) {
+        // Forest canopy (top area)
+        for (let y = 280; y < this.playAreaTop; y += 32) {
+          const tint = isForestLevel ? 0x0f2010 : 0x1a3010;
+          this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
         }
-      }
 
-      // Forest floor (bottom area)
-      for (let y = this.playAreaBottom; y < height; y += 32) {
-        const tint = isForestLevel ? 0x102510 : 0x1a3510;
-        this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
-      }
-    }
-
-    if (!isForestLevel) {
-      // Corn stalks across the level
-      for (let x = 0; x < this.levelWidth; x += 20) {
-        const offsetX = (Math.floor(x / 20) % 2) * 10;
-        for (let row = 0; row < 2; row++) {
-          const y = 295 + row * 30;
-          if (y < this.playAreaTop - 10) {
-            const corn = this.add.image(x + offsetX, y, 'corn');
-            corn.setTint(0x2a4a20);
-            corn.setDepth(y);
+        // Road (middle play area)
+        for (let y = this.playAreaTop; y < this.playAreaBottom; y += 32) {
+          if (isForestLevel) {
+            this.add.image(x + 16, y + 16, 'grass').setTint(0x2a4a20).setDepth(-10);
+          } else {
+            this.add.image(x + 16, y + 16, 'sand').setTint(0x6a5040).setDepth(-10);
           }
         }
-      }
-    } else {
-      // Dark forest silhouettes above/below the road
-      for (let i = 0; i < 40; i++) {
-        const topX = Math.random() * this.levelWidth;
-        const topY = 260 + Math.random() * 70;
-        this.add.circle(topX, topY, 18 + Math.random() * 18, 0x0a1208, 0.9)
-          .setDepth(-9);
+
+        // Forest floor (bottom area)
+        for (let y = this.playAreaBottom; y < height; y += 32) {
+          const tint = isForestLevel ? 0x102510 : 0x1a3510;
+          this.add.image(x + 16, y + 16, 'grass').setTint(tint).setDepth(-10);
+        }
       }
 
-      for (let i = 0; i < 40; i++) {
-        const bottomX = Math.random() * this.levelWidth;
-        const bottomY = this.playAreaBottom + 20 + Math.random() * 70;
-        this.add.circle(bottomX, bottomY, 18 + Math.random() * 18, 0x0a1208, 0.9)
-          .setDepth(-9);
+      if (!isForestLevel) {
+        // Corn stalks across the level
+        for (let x = 0; x < this.levelWidth; x += 20) {
+          const offsetX = (Math.floor(x / 20) % 2) * 10;
+          for (let row = 0; row < 2; row++) {
+            const y = 295 + row * 30;
+            if (y < this.playAreaTop - 10) {
+              const corn = this.add.image(x + offsetX, y, 'corn');
+              corn.setTint(0x2a4a20);
+              corn.setDepth(y);
+            }
+          }
+        }
+      } else {
+        // Dark forest silhouettes above/below the road
+        for (let i = 0; i < 40; i++) {
+          const topX = Math.random() * this.levelWidth;
+          const topY = 260 + Math.random() * 70;
+          this.add.circle(topX, topY, 18 + Math.random() * 18, 0x0a1208, 0.9)
+            .setDepth(-9);
+        }
+
+        for (let i = 0; i < 40; i++) {
+          const bottomX = Math.random() * this.levelWidth;
+          const bottomY = this.playAreaBottom + 20 + Math.random() * 70;
+          this.add.circle(bottomX, bottomY, 18 + Math.random() * 18, 0x0a1208, 0.9)
+            .setDepth(-9);
+        }
       }
     }
 
@@ -1090,6 +1039,95 @@ export class GameScene extends Phaser.Scene {
     this.add.rectangle(this.levelWidth / 2, this.playAreaBottom, this.levelWidth, 4, 0x2a4a15)
       .setOrigin(0.5, 0.5)
       .setDepth(-5);
+  }
+
+  renderTileLayers() {
+    const layers = this.mapData.layers.filter(layer => layer.type === 'tilelayer');
+    const tileWidth = this.mapData.tilewidth;
+    const tileHeight = this.mapData.tileheight;
+    const width = this.mapData.width;
+    const groundFirstGid = this.getTilesetFirstGid('ground.tsx');
+
+    for (const layer of layers) {
+      if (!layer.visible) continue;
+      const data = layer.data || [];
+      for (let index = 0; index < data.length; index++) {
+        const gid = data[index];
+        if (!gid) continue;
+        const frame = gid - groundFirstGid;
+        if (frame < 0 || frame > 3) continue;
+        const x = (index % width) * tileWidth + tileWidth / 2;
+        const y = Math.floor(index / width) * tileHeight + tileHeight / 2;
+        this.add.image(x, y, 'ground_tiles', frame).setDepth(-10);
+      }
+    }
+  }
+
+  getTilesetFirstGid(sourceSuffix) {
+    if (!this.mapData?.tilesets) return 1;
+    const match = this.mapData.tilesets.find(tileset => tileset.source?.endsWith(sourceSuffix));
+    return match?.firstgid ?? 1;
+  }
+
+  createMapObjects() {
+    this.obstacles = [];
+    this.pits = [];
+    this.dirtStreams = [];
+
+    if (!this.mapData?.layers) return;
+
+    const objectsFirstGid = this.getTilesetFirstGid('objects.tsx');
+    const layers = this.mapData.layers;
+    for (const layer of layers) {
+      if (layer.type !== 'objectgroup') continue;
+
+      if (layer.name === 'cars') {
+        for (const obj of layer.objects || []) {
+          if (!obj.gid) continue;
+          const frame = obj.gid - objectsFirstGid;
+          const car = this.add.image(obj.x + obj.width / 2, obj.y - obj.height / 2, 'object_tiles', frame);
+          car.footY = car.y + car.height / 2;
+          car.setDepth(car.footY);
+          this.obstacles.push(car);
+        }
+      }
+
+      if (layer.name === 'pits') {
+        for (const obj of layer.objects || []) {
+          if (!obj.gid) continue;
+          const frame = obj.gid - objectsFirstGid;
+          const pit = this.add.image(obj.x + obj.width / 2, obj.y - obj.height / 2, 'object_tiles', frame);
+          pit.footY = pit.y + pit.height / 2;
+          pit.setDepth(0);
+          pit.hitWidth = obj.width;
+          pit.hitHeight = obj.height;
+          this.pits.push(pit);
+        }
+      }
+
+      if (layer.name === 'dirt_streams') {
+        for (const obj of layer.objects || []) {
+          const x = obj.x + obj.width / 2;
+          const y = obj.y - obj.height / 2;
+          const frame = obj.gid - objectsFirstGid;
+          const segment = this.add.image(x, y, 'object_tiles', frame);
+          segment.setDepth(-4);
+          segment.setAlpha(0.8);
+          const radius = Math.max(obj.width, obj.height) / 2;
+          this.dirtStreams.push({ x, y, radius });
+        }
+      }
+
+      if (layer.name === 'corn') {
+        for (const obj of layer.objects || []) {
+          if (!obj.gid) continue;
+          const frame = obj.gid - objectsFirstGid;
+          const corn = this.add.image(obj.x + obj.width / 2, obj.y - obj.height / 2, 'object_tiles', frame);
+          corn.setTint(0x2a4a20);
+          corn.setDepth(corn.y + corn.height / 2);
+        }
+      }
+    }
   }
 
   showForestSign() {
@@ -1412,10 +1450,12 @@ export class GameScene extends Phaser.Scene {
     const playerFoot = this.player.y + this.player.height / 2;
 
     for (const pit of this.pits) {
-      const pitLeft = pit.x - pit.width / 2;
-      const pitRight = pit.x + pit.width / 2;
-      const pitTop = pit.y - pit.height / 2;
-      const pitBottom = pit.y + pit.height / 2;
+      const pitWidth = pit.hitWidth ?? pit.width;
+      const pitHeight = pit.hitHeight ?? pit.height;
+      const pitLeft = pit.x - pitWidth / 2;
+      const pitRight = pit.x + pitWidth / 2;
+      const pitTop = pit.y - pitHeight / 2;
+      const pitBottom = pit.y + pitHeight / 2;
 
       // Check horizontal overlap
       const horizontalOverlap = playerRight > pitLeft && playerLeft < pitRight;
